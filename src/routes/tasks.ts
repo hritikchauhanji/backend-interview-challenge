@@ -14,7 +14,11 @@ export function createTaskRouter(db: Database): Router {
       const tasks = await taskService.getAllTasks();
       res.json(tasks);
     } catch (error) {
-      res.status(500).json({ error: 'Failed to fetch tasks' });
+      res.status(500).json({
+        error: "Failed to fetch tasks",
+        timestamp: new Date().toISOString(),
+        path: req.originalUrl,
+      });
     }
   });
 
@@ -23,41 +27,110 @@ export function createTaskRouter(db: Database): Router {
     try {
       const task = await taskService.getTask(req.params.id);
       if (!task) {
-        return res.status(404).json({ error: 'Task not found' });
+        return res.status(404).json({
+          error: "Task not found",
+          timestamp: new Date().toISOString(),
+          path: req.originalUrl,
+        });
       }
       res.json(task);
     } catch (error) {
-      res.status(500).json({ error: 'Failed to fetch task' });
+      res.status(500).json({
+        error: "Failed to fetch task",
+        timestamp: new Date().toISOString(),
+        path: req.originalUrl,
+      });
     }
   });
 
   // Create task
   router.post('/', async (req: Request, res: Response) => {
-    // TODO: Implement task creation endpoint
-    // 1. Validate request body
-    // 2. Call taskService.createTask()
-    // 3. Return created task
-    res.status(501).json({ error: 'Not implemented' });
+    try {
+      const { title, description } = req.body;
+      if (!title || typeof title !== "string") {
+        return res.status(400).json({
+          error: "Title is required and must be a string",
+          timestamp: new Date().toISOString(),
+          path: req.originalUrl,
+        });
+      }
+
+      const task = await taskService.createTask({
+        title,
+        description: description || "",
+      });
+
+      res.status(201).json(task);
+    } catch (error) {
+      res.status(500).json({
+        error: "Failed to create task",
+        timestamp: new Date().toISOString(),
+        path: req.originalUrl,
+      });
+    }
   });
 
   // Update task
   router.put('/:id', async (req: Request, res: Response) => {
-    // TODO: Implement task update endpoint
-    // 1. Validate request body
-    // 2. Call taskService.updateTask()
-    // 3. Handle not found case
-    // 4. Return updated task
-    res.status(501).json({ error: 'Not implemented' });
+    try {
+      const { title, description, completed } = req.body;
+
+      if (title && typeof title !== "string") {
+        return res.status(400).json({
+          error: "Title must be a string",
+          timestamp: new Date().toISOString(),
+          path: req.originalUrl,
+        });
+      }
+
+      const existingTask = await taskService.getTask(req.params.id);
+      if (!existingTask) {
+        return res.status(404).json({
+          error: "Task not found",
+          timestamp: new Date().toISOString(),
+          path: req.originalUrl,
+        });
+      }
+
+      const updatedTask = await taskService.updateTask({
+        ...existingTask,
+        title: title ?? existingTask.title,
+        description: description ?? existingTask.description,
+        completed: completed ?? existingTask.completed,
+      });
+
+      res.json(updatedTask);
+    } catch (error) {
+      res.status(500).json({
+        error: "Failed to update task",
+        timestamp: new Date().toISOString(),
+        path: req.originalUrl,
+      });
+    }
   });
+
 
   // Delete task
   router.delete('/:id', async (req: Request, res: Response) => {
-    // TODO: Implement task deletion endpoint
-    // 1. Call taskService.deleteTask()
-    // 2. Handle not found case
-    // 3. Return success response
-    res.status(501).json({ error: 'Not implemented' });
+    try {
+      const deleted = await taskService.deleteTask(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({
+          error: "Task not found",
+          timestamp: new Date().toISOString(),
+          path: req.originalUrl,
+        });
+      }
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({
+        error: "Failed to delete task",
+        timestamp: new Date().toISOString(),
+        path: req.originalUrl,
+      });
+    }
   });
+
 
   return router;
 }

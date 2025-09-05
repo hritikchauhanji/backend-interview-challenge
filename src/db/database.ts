@@ -1,5 +1,4 @@
 import sqlite3 from 'sqlite3';
-import { promisify } from 'util';
 import { Task, SyncQueueItem } from '../types';
 
 const sqlite = sqlite3.verbose();
@@ -44,11 +43,27 @@ export class Database {
       )
     `;
 
+    const createDeadLetterTable = `
+      CREATE TABLE IF NOT EXISTS dead_letter_queue (
+        id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL,
+        operation TEXT NOT NULL,
+        data TEXT NOT NULL,
+        created_at DATETIME,
+        retry_count INTEGER,
+        error_message TEXT,
+        moved_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `;
+
     await this.run(createTasksTable);
     await this.run(createSyncQueueTable);
+    await this.run(createDeadLetterTable);
   }
 
-  // Helper methods
+  // --------------------
+  // Generic helpers
+  // --------------------
   run(sql: string, params: any[] = []): Promise<void> {
     return new Promise((resolve, reject) => {
       this.db.run(sql, params, (err) => {
@@ -84,4 +99,94 @@ export class Database {
       });
     });
   }
+
+  // --------------------
+  // Sync Queue methods
+  // --------------------
+  async getSyncQueue(): Promise<SyncQueueItem[]> {
+    const rows = await this.all(`SELECT * FROM sync_queue ORDER BY created_at ASC`);
+    return rows.map((row) => ({
+      ...row,
+      data: JSON.parse(row.data),
+      created_at: new Date(row.created_at),
+    }));
+  }
+
+  async insertSyncQueueItem(item: SyncQueueItem): Promise<void> {
+    await this.run(
+      `INSERT INTO sync_queue (id, task_id, operation, data, created_at, retry_count, error_message)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        item.id,
+        item.task_id,
+        item.operation,
+        JSON.stringify(item.data),
+        item.created_at.toISOString(),
+        item.retry_count,
+        item.error_message || null,
+      ]
+    );
+  }
+
+  async updateSyncQueueItem(item: SyncQueueItem): Promise<void> {
+    await this.run(
+      `UPDATE sync_queue
+       SET retry_count = ?, error_message = ?
+       WHERE id = ?`,
+      [item.retry_count, item.error_message, item.id]
+    );
+  }
+
+  async updateSyncQueueStatus(id: string, status: string): Promise<void> {
+    await this.run(
+      `UPDATE sync_queue SET error_message = ? WHERE id = ?`,
+      [status, id]
+    );
+  }
+
+  async removeFromSyncQueue(id: string): Promise<void> {
+    await this.run(`DELETE FROM sync_queue WHERE id = ?`, [id]);
+  }
+
+  // --------------------
+  // Dead Letter Queue
+  // --------------------
+  async moveToDeadLetterQueue(item: SyncQueueItem): Promise<void> {
+    await this.run(
+      `INSERT INTO dead_letter_queue (id, task_id, operation, data, created_at, retry_count, error_message)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        item.id,
+        item.task_id,
+        item.operation,
+        JSON.stringify(item.data),
+        item.created_at.toISOString(),
+        item.retry_count,
+        item.error_message || null,
+      ]
+    );
+  }
+
+  async getDeadLetterQueue(): Promise<SyncQueueItem[]> {
+    const rows = await this.all(`SELECT * FROM dead_letter_queue ORDER BY moved_at DESC`);
+    return rows.map((row) => ({
+      ...row,
+      data: JSON.parse(row.data),
+      created_at: new Date(row.created_at),
+    }));
+  }
+
+  // --------------------
+  // Sync status helpers
+  // --------------------
+  async countPendingSyncItems(): Promise<number> {
+    const row = await this.get(`SELECT COUNT(*) as count FROM sync_queue`);
+    return row?.count || 0;
+  }
+
+  async getLastSyncTimestamp(): Promise<Date | null> {
+    const row = await this.get(`SELECT MAX(last_synced_at) as lastSync FROM tasks`);
+    return row?.lastSync ? new Date(row.lastSync) : null;
+  }
+
 }

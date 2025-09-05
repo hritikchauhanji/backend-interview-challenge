@@ -7,8 +7,8 @@ export interface Task {
   updated_at: Date;
   is_deleted: boolean;
   sync_status?: 'pending' | 'synced' | 'error';
-  server_id?: string;
-  last_synced_at?: Date;
+  server_id?: string | null;
+  last_synced_at?: Date | null;
 }
 
 export interface SyncQueueItem {
